@@ -4,9 +4,11 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 <html lang="en">
 <head>
 	<meta charset="utf-8">
+	<base href="<?php echo base_url();?>" target="_self">
 	<title>Human Activity Recognition</title>
 
-	<script src="../application/libraries/Chart.min.js"></script>
+	<script src="<?php echo base_url();?>application/libraries/jquery.min.3.3.1.js"></script>
+	<script src="<?php echo base_url();?>application/libraries/Chart.min.js"></script>
 
 	<style type="text/css">
 
@@ -92,9 +94,16 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 	<h1><center>Human Activity Recognition</center></h1>
 
 	<div id="body">
+
+<?php
+	$attributes = array("id" => "sensor_data_form" , "name" => "sensor_data_form");
+	echo form_open_multipart("patient/import_csv", $attributes);
+?>
+	<input type="file" id="sensor_data" name="sensor_data" style="display: none">
+</form>
 		<p>
 			<center>
-				<input type="button" id="on_off" name="on_off" value="ON/OFF" onclick="start_har();" style="width: 10%; color: blue;">
+				<input type="button" id="submit_button" name="submit_button" value="Import" onclick="import_csv();" style="width: 20%; color: blue;">
 			</center>
 		</p>
 		<p style="text-align: right; margin-right: 5%;">
@@ -133,6 +142,18 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 </div>
 
 <script type="text/javascript">
+
+
+	function import_csv() {
+		$("#sensor_data").trigger('click');
+		$('#sensor_data').change(function() {
+			document.forms[name="sensor_data_form"].submit();
+		});
+		alert('Form submitted!');
+		// $('form#sensor_data_form').submit();
+	}
+
+
 	// var myLineChart = new Chart(ctx, {
 	// 							    type: 'line',
 	// 							    data: data,
