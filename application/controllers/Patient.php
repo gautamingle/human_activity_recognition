@@ -1,8 +1,6 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
 
-// require_once(APPPATH.'controllers/Fall_detection.php');
-
 class Patient extends CI_controller {
 
 	public function __construct()
@@ -12,13 +10,13 @@ class Patient extends CI_controller {
     }
 
 	/**
-	 * Patient Page for this controller.
+	 * Patient class.
 	 *
 	 *
 	 */
 	public function index()
 	{
-		$this->load->view('patient');
+		$this->load->view('welcome');
 	}
 
 	public function import_csv()
@@ -86,13 +84,7 @@ class Patient extends CI_controller {
 				return;
 			}
 		}
-$this->overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2);
-		// if($sensor_data_a1 =! NULL || $sensor_data_g =! NULL || $sensor_data_a2 =! NULL) {
-			
-		// 	$this->overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2);
-		// } else {
-		// 	echo "123";
-		// }
+		$this->overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2);
 	}
 
 	public function process_signal($sensor_type, $sensor_value) {
@@ -137,52 +129,53 @@ $this->overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2);
 	public function overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2)
 	{
 		// Sensor frequency sample is 200 HZ, i.e, 5ms interval between sensor data
-		$sensor_frequency = 0.005;
+		$timestamp = (float)0.000;
+		$sensor_sampling_frequency = 0.005;
+		$final = array();
+		$x_graph = array();
+		$y_graph = array();
 
 		// Overall accln and angular velocity calculations
-		$acceleration = NULL;
-		$angular_velocity = NULL;
 
 		$data_count = count($sensor_data_a1);
 		for ($i=0; $i < $data_count; $i++) { 
 			$a1 = sqrt(pow(2,$sensor_data_a1[$i][x]) + pow(2,$sensor_data_a1[$i][y]) + pow(2,$sensor_data_a1[$i][z]));
 			$a2 = sqrt(pow(2,$sensor_data_a2[$i][x]) + pow(2,$sensor_data_a2[$i][y]) + pow(2,$sensor_data_a2[$i][z]));
-			$angular_velocity[] = sqrt(pow(2,$sensor_data_g[$i][x]) + pow(2,$sensor_data_g[$i][y]) + pow(2,$sensor_data_g[$i][z]));
-			$acceleration[] = ($a1 + $a2)/2; // Taking avg of the 2 sensors so as to improve accuracy of acceleration
+			$angular_velocity = sqrt(pow(2,$sensor_data_g[$i][x]) + pow(2,$sensor_data_g[$i][y]) + pow(2,$sensor_data_g[$i][z]));
+			$acceleration = ($a1 + $a2)/2; // Taking avg of the 2 sensors so as to improve accuracy of acceleration
+
+			$timestamp = $timestamp + $sensor_sampling_frequency;
+			$timestamp = (float) number_format((float)$timestamp, 3, '.', '');
+			if($i == 0) {
+				$timestamp = (float)0.000;
+			}
+			$temp_array = array( 
+								'accln' => $acceleration,
+								'stamp'	=> $timestamp
+							);
+			array_push($x_graph, number_format($acceleration, 2, '.', ''));
+			array_push($y_graph, number_format($timestamp, 2, '.', ''));
+			array_push($final, $temp_array);
 		}
-
-		echo "<pre>";
-		var_dump($acceleration);
-
-		return;
-
+		$this->fall_detection($final, $x_graph, $y_graph);
 	}
 
-	public function thresholds($sensor_data_a1, $sensor_data_g, $sensor_data_a2)
+	public function fall_detection($final, $x_graph, $y_graph)
 	{
-		if($sensor_type == 1) {
-			// Accelerometer - 1
-			return array(
-							'x' => 0,
-							'y' => 0,
-							'z' => 0,
-						);
-		} else if($sensor_type == 2) {
-			// Accelerometer - 2
-			return array(
-							'x' => 0,
-							'y' => 0,
-							'z' => 0,
-						);
-		} else if($sensor_type == 3) {
-			// Gyroscope
-			return array(
-							'x' => 0,
-							'y' => 0,
-							'z' => 0,
-						);
+		$max_key = max($final);
+		$min_key = min($final);
+
+		$diff = abs($min_key['stamp'] - $max_key['stamp']);
+
+		if($diff < 1) {
+			$view_data['result'] = "Fall Deteted!";
 		} else {
-			return NULL;
+			$view_data['result'] = "No Fall";
 		}
+
+		$view_data['x_graph'] = implode( ", ", $x_graph);
+		$view_data['y_graph'] = implode( ", ", $y_graph);
+
+		$this->load->view('patient', $view_data);
 	}
 }
