@@ -9,6 +9,8 @@ class Patient extends CI_controller {
         // date_default_timezone_set('Asia/Kolkata');
     }
 
+	// $sensor_sampling_frequency = 0.005;
+
 	/**
 	 * Patient class.
 	 *
@@ -16,9 +18,14 @@ class Patient extends CI_controller {
 	 */
 	public function index()
 	{
-		$this->load->view('welcome');
+		$this->load->view('patient');
 	}
 
+	/**
+	 * Import CSV data into system
+	 *
+	 *
+	 */
 	public function import_csv()
 	{
 		$sensor_data_a1 = NULL;
@@ -87,6 +94,11 @@ class Patient extends CI_controller {
 		$this->overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2);
 	}
 
+	/**
+	 * Process signal -> Convert from bits to G
+	 *
+	 *
+	 */
 	public function process_signal($sensor_type, $sensor_value) {
 		if($sensor_type == 1) {
 			// Accleration - 1
@@ -126,23 +138,30 @@ class Patient extends CI_controller {
 		}
 	}
 
+	/**
+	 * Acceleration
+	 * A1 and A2 sensor => x,y,z axis convert to overall accleration
+	 * Gyro sensor => Convert to overall angular velocity
+	 */
 	public function overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2)
 	{
 		// Sensor frequency sample is 200 HZ, i.e, 5ms interval between sensor data
 		$timestamp = (float)0.000;
-		$sensor_sampling_frequency = 0.005;
+		$sensor_sampling_frequency = 0.005; // in seconds - 5 ms
+
 		$final = array();
 		$x_graph = array();
 		$y_graph = array();
 
 		// Overall accln and angular velocity calculations
-
-		$data_count = count($sensor_data_a1);
+		$data_count = count($sensor_data_a1); // taking only a1 as both sensor sets have same sampling freq
 		for ($i=0; $i < $data_count; $i++) { 
 			$a1 = sqrt(pow(2,$sensor_data_a1[$i][x]) + pow(2,$sensor_data_a1[$i][y]) + pow(2,$sensor_data_a1[$i][z]));
 			$a2 = sqrt(pow(2,$sensor_data_a2[$i][x]) + pow(2,$sensor_data_a2[$i][y]) + pow(2,$sensor_data_a2[$i][z]));
-			$angular_velocity = sqrt(pow(2,$sensor_data_g[$i][x]) + pow(2,$sensor_data_g[$i][y]) + pow(2,$sensor_data_g[$i][z]));
-			$acceleration = ($a1 + $a2)/2; // Taking avg of the 2 sensors so as to improve accuracy of acceleration
+			$acceleration = ($a1 + $a2)/2;
+
+			// Taking avg of the 2 sensors so as to improve accuracy of acceleration
+			$angular_velocity = sqrt(pow(2,$sensor_data_g[$i][x]) + pow(2,$sensor_data_g[$i][y]) + pow(2,$sensor_data_g[$i][z])); // Todo - not exactly correct
 
 			$timestamp = $timestamp + $sensor_sampling_frequency;
 			$timestamp = (float) number_format((float)$timestamp, 3, '.', '');
@@ -157,25 +176,92 @@ class Patient extends CI_controller {
 			array_push($y_graph, number_format($timestamp, 2, '.', ''));
 			array_push($final, $temp_array);
 		}
-		$this->fall_detection($final, $x_graph, $y_graph);
+		$this->fall_detection($final, $x_graph, $y_graph, $sensor_sampling_frequency, $i);
 	}
 
-	public function fall_detection($final, $x_graph, $y_graph)
+	/**
+	 * Fall and Threshold
+	 *
+	 *
+	 */
+	public function fall_detection($final, $x_graph, $y_graph, $sensor_sampling_frequency, $samples)
 	{
-		$max_key = max($final);
-		$min_key = min($final);
+		// Window based acceleration detection, todo - calculate patient orientation
 
-		$diff = abs($min_key['stamp'] - $max_key['stamp']);
+		$max_g_threshold = 2; // Based on papers & dataset
+		$view_data['fall_detected_flag'] = FALSE; // Fall detection flag
 
-		if($diff < 1) {
-			$view_data['result'] = "Fall Deteted!";
-		} else {
-			$view_data['result'] = "No Fall";
+		// Create a 1 sec window
+		$window_size = 1.000; // in secs
+		$window_no = $window_size/$sensor_sampling_frequency; // no of samples in the window
+
+		// Increment the window by 250 ms
+		$window_increment_size = 0.250; // secs
+		$window_increment_no = $window_increment_size/$sensor_sampling_frequency; // no of samples tobe incremented in each window
+
+		$runs = ceil($samples/$window_no); // total runs for window
+
+		$view_data['location'] = "-";
+		$view_data['result'] = "No Fall";
+		$view_data['max'] = 0;
+		$view_data['min'] = 0;
+		$max_acceleration = 0;
+		$main_acceleration = 0;
+
+		// Loop through the samples within the window
+		for ($i=0; $i < $runs; $i++) { 
+			// Sliding the window with time
+			if($i == 0) {
+				$left = (int) 0;
+				$right = (int) $window_no;
+			} else {
+				$left = (int) $left+$window_increment_no;
+				$right = (int) $right+$window_increment_no;
+			}
+
+			// Analysing samples only with the window
+			$window_array = array_slice($final, $left, $right);
+
+			// Determining max and min G's within window
+			$max_key = max($window_array);
+			$min_key = min($window_array);
+
+			// Determining difference between max & min G & time
+			$diff_g = abs($max_key['accln'] - $min_key['accln']);
+			$diff_time = abs($max_key['stamp'] - $min_key['stamp']);
+
+			// Tmax-Tmin > G threshold and Tmax occured after Tmin
+			if ($diff_g > $max_g_threshold && $diff_time > 0) {
+				$max_acceleration = $max_key['accln'];
+				$main_acceleration = $min_key['accln'];
+
+				$view_data['fall_detected_flag'] = TRUE;
+			}
 		}
 
+		if($view_data['fall_detected_flag']) {
+			$view_data['location'] = $this->emergency_system();
+			$view_data['result'] = "Fall Detected! Emergency services alerted with your location!";
+			$view_data['max'] = $max_acceleration;
+			$view_data['min'] = $main_acceleration;
+		}
+
+		// Plot acceleration graph
 		$view_data['x_graph'] = implode( ", ", $x_graph);
 		$view_data['y_graph'] = implode( ", ", $y_graph);
 
 		$this->load->view('patient', $view_data);
+	}
+
+	/**
+	 * Contacting emergency services
+	 *
+	 *
+	 */
+	public function emergency_system()
+	{
+		// Determin GPS location of patient
+		// Make a call to the EM services
+		return "50.116667, 8.683333";
 	}
 }
