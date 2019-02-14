@@ -110,11 +110,6 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 								</tbody>
 							</table>
 						</center>
-						<!-- <label type="button">Max = </label>
-						<br>
-						<label type="button">Min = <?php //echo $min ?></label>
-						<br>
-						<label type="button">GPS Location Coordinates = <?php //echo $location ?></label> -->
 					</div>
 					<div style="text-align: center;">
 						<a style="float: right;" href="<?php echo base_url();?>index.php/patient" >Back</a>

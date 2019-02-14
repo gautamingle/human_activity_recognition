@@ -6,13 +6,10 @@ class Patient extends CI_controller {
 	public function __construct()
     {
         parent::__construct();
-        // date_default_timezone_set('Asia/Kolkata');
     }
 
-	// $sensor_sampling_frequency = 0.005;
-
 	/**
-	 * Patient class.
+	 * Patient - Detect falls for patient
 	 *
 	 *
 	 */
@@ -69,19 +66,19 @@ class Patient extends CI_controller {
 						}
 
 						// Accleration - 1
-						$sensor_data_a1[$count]['x'] = $this->process_signal(1, $csv_line_content[0]);
-						$sensor_data_a1[$count]['y'] = $this->process_signal(1, $csv_line_content[1]);
-						$sensor_data_a1[$count]['z'] = $this->process_signal(1, $csv_line_content[2]);
+						$sensor_data_a1[$count]['x'] = $this->signal_preprocessing(1, $csv_line_content[0]);
+						$sensor_data_a1[$count]['y'] = $this->signal_preprocessing(1, $csv_line_content[1]);
+						$sensor_data_a1[$count]['z'] = $this->signal_preprocessing(1, $csv_line_content[2]);
 
 						// Gyro
-						$sensor_data_g[$count]['x'] = $this->process_signal(2, $csv_line_content[3]);
-						$sensor_data_g[$count]['y'] = $this->process_signal(2, $csv_line_content[4]);
-						$sensor_data_g[$count]['z'] = $this->process_signal(2, $csv_line_content[5]);
+						$sensor_data_g[$count]['x'] = $this->signal_preprocessing(2, $csv_line_content[3]);
+						$sensor_data_g[$count]['y'] = $this->signal_preprocessing(2, $csv_line_content[4]);
+						$sensor_data_g[$count]['z'] = $this->signal_preprocessing(2, $csv_line_content[5]);
 
 						// Accleration - 2
-						$sensor_data_a2[$count]['x'] = $this->process_signal(3, $csv_line_content[6]);
-						$sensor_data_a2[$count]['y'] = $this->process_signal(3, $csv_line_content[7]);
-						$sensor_data_a2[$count]['z'] = $this->process_signal(3, $csv_line_content[8]);
+						$sensor_data_a2[$count]['x'] = $this->signal_preprocessing(3, $csv_line_content[6]);
+						$sensor_data_a2[$count]['y'] = $this->signal_preprocessing(3, $csv_line_content[7]);
+						$sensor_data_a2[$count]['z'] = $this->signal_preprocessing(3, $csv_line_content[8]);
 						$count++;
 					}
 				}
@@ -91,7 +88,7 @@ class Patient extends CI_controller {
 				return;
 			}
 		}
-		$this->overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2);
+		$this->process_overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2);
 	}
 
 	/**
@@ -99,7 +96,7 @@ class Patient extends CI_controller {
 	 *
 	 *
 	 */
-	public function process_signal($sensor_type, $sensor_value) {
+	public function signal_preprocessing($sensor_type, $sensor_value) {
 		if($sensor_type == 1) {
 			// Accleration - 1
 			// Acceleration [g]: [(2*Range)/(2^Resolution)]*AD
@@ -143,7 +140,7 @@ class Patient extends CI_controller {
 	 * A1 and A2 sensor => x,y,z axis convert to overall accleration
 	 * Gyro sensor => Convert to overall angular velocity
 	 */
-	public function overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2)
+	public function process_overall_acceleration($sensor_data_a1, $sensor_data_g, $sensor_data_a2)
 	{
 		// Sensor frequency sample is 200 HZ, i.e, 5ms interval between sensor data
 		$timestamp = (float)0.000;
@@ -161,7 +158,9 @@ class Patient extends CI_controller {
 			$acceleration = ($a1 + $a2)/2;
 
 			// Taking avg of the 2 sensors so as to improve accuracy of acceleration
-			$angular_velocity = sqrt(pow(2,$sensor_data_g[$i][x]) + pow(2,$sensor_data_g[$i][y]) + pow(2,$sensor_data_g[$i][z])); // Todo - not exactly correct
+			$angular_velocity = sqrt(pow(2,$sensor_data_g[$i][x]) + pow(2,$sensor_data_g[$i][y]) + pow(2,$sensor_data_g[$i][z]));
+
+			$angular_orientation = acos(($sensor_data_g[$i][z]/$angular_velocity));
 
 			$timestamp = $timestamp + $sensor_sampling_frequency;
 			$timestamp = (float) number_format((float)$timestamp, 3, '.', '');
@@ -169,8 +168,9 @@ class Patient extends CI_controller {
 				$timestamp = (float)0.000;
 			}
 			$temp_array = array( 
-								'accln' => $acceleration,
-								'stamp'	=> $timestamp
+								'accln' 	=> $acceleration,
+								'stamp'		=> $timestamp,
+								'velocity' 	=> $angular_orientation
 							);
 			array_push($x_graph, number_format($acceleration, 2, '.', ''));
 			array_push($y_graph, number_format($timestamp, 2, '.', ''));
@@ -186,13 +186,13 @@ class Patient extends CI_controller {
 	 */
 	public function fall_detection($final, $x_graph, $y_graph, $sensor_sampling_frequency, $samples)
 	{
-		// Window based acceleration detection, todo - calculate patient orientation
+		// Window based acceleration detection
 
-		$max_g_threshold = 2; // Based on papers & dataset
+		$max_g_threshold = (float)2.5; // Based on papers & dataset
 		$view_data['fall_detected_flag'] = FALSE; // Fall detection flag
 
-		// Create a 1 sec window
-		$window_size = 1.000; // in secs
+		// Create a sec window
+		$window_size = 0.500; // in secs
 		$window_no = $window_size/$sensor_sampling_frequency; // no of samples in the window
 
 		// Increment the window by 250 ms
@@ -206,7 +206,7 @@ class Patient extends CI_controller {
 		$view_data['max'] = 0;
 		$view_data['min'] = 0;
 		$max_acceleration = 0;
-		$main_acceleration = 0;
+		$min_acceleration = 0;
 
 		// Loop through the samples within the window
 		for ($i=0; $i < $runs; $i++) { 
@@ -233,17 +233,16 @@ class Patient extends CI_controller {
 			// Tmax-Tmin > G threshold and Tmax occured after Tmin
 			if ($diff_g > $max_g_threshold && $diff_time > 0) {
 				$max_acceleration = $max_key['accln'];
-				$main_acceleration = $min_key['accln'];
-
+				$min_acceleration = $min_key['accln'];
 				$view_data['fall_detected_flag'] = TRUE;
 			}
 		}
 
 		if($view_data['fall_detected_flag']) {
-			$view_data['location'] = $this->emergency_system();
+			$view_data['location'] = $this->emergency_system(); // EM call
 			$view_data['result'] = "Fall Detected! Emergency services alerted with your location!";
-			$view_data['max'] = $max_acceleration;
-			$view_data['min'] = $main_acceleration;
+			$view_data['max'] = number_format((float)$max_acceleration, 2, '.', '');
+			$view_data['min'] = number_format((float)$min_acceleration, 2, '.', '');
 		}
 
 		// Plot acceleration graph
